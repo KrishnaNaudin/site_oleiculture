@@ -192,9 +192,23 @@ window.sendData=function(){
  var msg=document.getElementById('sendmsg'), btn=document.getElementById('sendbtn');
  if(!CFG.ENDPOINT){msg.innerHTML='<pre>'+JSON.stringify(payload,null,2).replace(/</g,'&lt;')+'</pre><p class="muted">(Aucun ENDPOINT configuré : aperçu de ce qui serait envoyé.)</p>';return;}
  btn.disabled=true; msg.innerHTML='<p>Envoi en cours…</p>';
- fetch(CFG.ENDPOINT,{method:"POST",mode:"no-cors",headers:{"Content-Type":"text/plain;charset=utf-8"},body:JSON.stringify(payload)})
-  .then(function(){localStorage.removeItem(LSKEY);app.innerHTML='<div class="card"><h1>Merci, c\'est envoyé ✅</h1><p>Vos évaluations ont été transmises. Vous pouvez fermer la page.</p></div>';})
-  .catch(function(){btn.disabled=false;msg.innerHTML='<p style="color:#c23b3b">Échec de l\'envoi. Vérifiez la connexion et réessayez.</p>';});
+ var body=JSON.stringify(payload);
+ fetch(CFG.ENDPOINT,{method:"POST",redirect:"follow",headers:{"Content-Type":"text/plain;charset=utf-8"},body:body})
+  .then(function(r){return r.text().then(function(t){try{var j=JSON.parse(t);if(j.ok)return true;}catch(e){} throw new Error("Réponse inattendue");});})
+  .then(function(){store._submitted=new Date().toISOString();save();app.innerHTML='<div class="card"><h1>Merci, c\'est envoyé ✅</h1><p>Vos évaluations ont été transmises. Une copie reste en mémoire locale.</p></div>';})
+  .catch(function(err){
+   btn.disabled=false;
+   msg.innerHTML='<p style="color:#c23b3b">Échec de l\'envoi ('+err.message+'). Vos réponses sont conservées.</p>'
+    +'<p>Téléchargez une copie de sauvegarde et envoyez-la par e-mail à <b>naudin@cirad.fr</b> :</p>'
+    +'<button class="btn sec" onclick="dlBackup()">Télécharger la sauvegarde (.json)</button>';
+  });
+}
+window.dlBackup=function(){
+ var payload=buildPayload();
+ var blob=new Blob([JSON.stringify(payload,null,2)],{type:"application/json"});
+ var a=document.createElement("a");a.href=URL.createObjectURL(blob);
+ a.download="evaluation_"+CFG.ATELIER+"_ev"+EV+"_"+new Date().toISOString().slice(0,10)+".json";
+ a.click();URL.revokeObjectURL(a.href);
 }
 window.go=function(s){ if(s==='profil')profil(); else if(s==='menu')menu(); else if(s==='submit')submitScreen(); };
 window.goMenu=function(){menu();};
