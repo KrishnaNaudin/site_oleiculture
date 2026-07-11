@@ -76,7 +76,8 @@ if(window.PLAN&&EV&&window.PLAN[EV]&&window.PLAN[EV].order){QIDS=window.PLAN[EV]
 var app=document.getElementById('app'), rem=document.getElementById('rem'), evtag=document.getElementById('evtag');
 var store={}, LSKEY="";
 
-function save(){localStorage.setItem(LSKEY,JSON.stringify(store))}
+var _lsOK=true;
+function save(){try{localStorage.setItem(LSKEY,JSON.stringify(store))}catch(e){if(_lsOK){_lsOK=false;alert("⚠ Stockage local indisponible. Vos réponses ne seront PAS sauvegardées entre les pages. Vérifiez que les cookies/stockage ne sont pas bloqués dans les paramètres du navigateur.")}}}
 window.ta=function(el){store[el.dataset.k]=el.value;save()};
 window.opt=function(el){store[el.dataset.g]=el.dataset.v;el.parentNode.querySelectorAll('.opt').forEach(function(o){o.classList.toggle('on',o===el)});save()};
 window.pick=function(el){var g=el.dataset.g,v=el.dataset.v;store[g]=v;document.querySelectorAll('[data-g="'+g+'"]').forEach(function(c){c.classList.toggle('on',c.dataset.v===v)});save()};
@@ -169,11 +170,15 @@ window.openQ=function(qid){question(qid);};
 
 function submitScreen(){
  var done=QIDS.filter(qDone);
+ var offline=!navigator.onLine;
  app.innerHTML='<div class="card"><h1>Envoi de vos évaluations</h1>'
+ +(offline?'<p style="color:#c23b3b;font-weight:700">⚠ Vous êtes actuellement hors-ligne. L\'envoi échouera. Connectez-vous à Internet ou téléchargez la sauvegarde.</p>':'')
  +'<p>Vous avez évalué <b>'+done.length+'</b> question(s) : '+(done.join(', ')||'aucune')+'.</p>'
  +'<p class="muted">Vous pouvez revenir au menu pour en évaluer d\'autres, ou envoyer maintenant.</p>'
  +'<div id="sendmsg"></div>'
- +'<div class="nav"><button class="btn sec" onclick="go(\'menu\')">← Retour au menu</button><button class="btn" id="sendbtn" onclick="sendData()"'+(done.length?'':' disabled')+'>Envoyer mes réponses ✓</button></div></div>';
+ +'<div class="nav"><button class="btn sec" onclick="go(\'menu\')">← Retour au menu</button>'
+ +'<button class="btn sec" onclick="dlBackup()">Sauvegarder (.json)</button>'
+ +'<button class="btn" id="sendbtn" onclick="sendData()"'+(done.length&&!offline?'':' disabled')+'>Envoyer mes réponses ✓</button></div></div>';
  setHeadFoot("envoi"); window.scrollTo(0,0);
 }
 function buildPayload(){
@@ -191,10 +196,14 @@ window.sendData=function(){
  var payload=buildPayload();
  var msg=document.getElementById('sendmsg'), btn=document.getElementById('sendbtn');
  if(!CFG.ENDPOINT){msg.innerHTML='<pre>'+JSON.stringify(payload,null,2).replace(/</g,'&lt;')+'</pre><p class="muted">(Aucun ENDPOINT configuré : aperçu de ce qui serait envoyé.)</p>';return;}
- btn.disabled=true; msg.innerHTML='<p>Envoi en cours…</p>';
+ btn.disabled=true; msg.innerHTML='<p>Envoi en cours… (jusqu\'à 30 secondes)</p>';
  var body=JSON.stringify(payload);
- fetch(CFG.ENDPOINT,{method:"POST",redirect:"follow",headers:{"Content-Type":"text/plain;charset=utf-8"},body:body})
-  .then(function(r){return r.text().then(function(t){try{var j=JSON.parse(t);if(j.ok)return true;}catch(e){} throw new Error("Réponse inattendue");});})
+ var ctrl=typeof AbortController!=='undefined'?new AbortController():null;
+ var timer=ctrl?setTimeout(function(){ctrl.abort()},30000):null;
+ var opts={method:"POST",redirect:"follow",headers:{"Content-Type":"text/plain;charset=utf-8"},body:body};
+ if(ctrl)opts.signal=ctrl.signal;
+ fetch(CFG.ENDPOINT,opts)
+  .then(function(r){if(timer)clearTimeout(timer);return r.text().then(function(t){try{var j=JSON.parse(t);if(j.ok)return true;}catch(e){} throw new Error("Réponse inattendue");});})
   .then(function(){store._submitted=new Date().toISOString();save();app.innerHTML='<div class="card"><h1>Merci, c\'est envoyé ✅</h1><p>Vos évaluations ont été transmises. Une copie reste en mémoire locale.</p></div>';})
   .catch(function(err){
    btn.disabled=false;
@@ -214,8 +223,12 @@ window.go=function(s){ if(s==='profil')profil(); else if(s==='menu')menu(); else
 window.goMenu=function(){menu();};
 
 function start(){
+ if(!C||!Object.keys(C).length){app.innerHTML='<div class="card"><h1>Erreur de chargement</h1><p>Les données du questionnaire n\'ont pas pu être chargées. Vérifiez votre connexion et rechargez la page.</p><button class="btn" onclick="location.reload()">Recharger</button></div>';return;}
  if(!EV){landing();return;}
- LSKEY="olc_"+(CFG.ATELIER||"atelier")+"_"+EV; try{store=JSON.parse(localStorage.getItem(LSKEY)||"{}")}catch(e){store={}}
+ LSKEY="olc_"+(CFG.ATELIER||"atelier")+"_"+EV;
+ try{var raw=localStorage.getItem(LSKEY);store=JSON.parse(raw||"{}");} catch(e){store={};}
+ try{localStorage.setItem("_test","1");localStorage.removeItem("_test");}catch(e){_lsOK=false;setTimeout(function(){alert("⚠ Stockage local indisponible. Vos réponses ne seront PAS sauvegardées. Vérifiez les paramètres cookies/vie privée de votre navigateur.");},500);}
+ if(store._submitted){app.innerHTML='<div class="card"><h1>Évaluation déjà envoyée ✅</h1><p>Vos réponses ont été transmises le '+store._submitted.slice(0,10)+'. Si vous souhaitez modifier et renvoyer, contactez naudin@cirad.fr.</p><button class="btn sec" onclick="dlBackup()">Télécharger la sauvegarde</button></div>';return;}
  profil();
 }
 start();
